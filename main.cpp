@@ -1,6 +1,23 @@
 #include <iostream>
 #include <fstream>
 #include <vector>
+#include <algorithm>
+#include <chrono>
+
+static const int IN_MEMORY_BUFFER_SIZE = 134217728;
+
+/*
+ * NOTE: next_int sets the eof bit after
+ * reading the last number which is unlike
+ * the std libraries
+ */
+int next_int(std::ifstream& in) {
+    char c;
+    std::string str;
+    while((in>>c) && (c!=','))
+        str += c;
+    return std::stoll(str);
+}
 
 /* merge 2 sorted files */
 std::string merge_files(const std::string& fpath1, const std::string& fpath2) {
@@ -10,34 +27,50 @@ std::string merge_files(const std::string& fpath1, const std::string& fpath2) {
     std::string out_file_name = fpath1+"merge_file";
     std::ofstream of(out_file_name);
 
-    /* read the files in memory */
-    std::vector<int> vec1, vec2;
-    int num;
-    while(if1>>num)
-        vec1.push_back(num);
+    bool read_from_if1, read_from_if2;
+    int num1, num2;
 
-    while(if2>>num)
-        vec2.push_back(num);
-
-    /* merge the sorted vectors */
-    std::vector<int> vec3;
-    int i=0, j=0, n=vec1.size(), m=vec2.size();
-    while(i<n && j<m) {
-        if(vec1[i] < vec2[j])
-            vec3.push_back(vec1[i++]);
-        else
-            vec3.push_back((vec2[j++]));
+    /* write the first num without a leading comma */
+    if(if1 && if2) {
+        num1 = next_int(if1);
+        num2 = next_int(if2);
+        if (num1 < num2) {
+            of << num1;
+            read_from_if1 = true;
+            read_from_if2 = false;
+        } else {
+            of << num2;
+            read_from_if2 = true;
+            read_from_if1 = false;
+        }
+    } else if(if1) {
+        of<<next_int(if1);
+    } else {
+        of<<next_int(if2);
     }
 
-    while (i < n)
-        vec3.push_back(vec1[i++]);
+    /* write rest of the numbers */
+    while(if1 && if2) {
+        if(read_from_if1) num1 = next_int(if1);
+        if(read_from_if2) num2 = next_int(if2);
 
-    while (j < m)
-        vec3.push_back(vec2[j++]);
+        if(num1 < num2) {
+            of << "," << num1;
+            read_from_if1 = true;
+            read_from_if2 = false;
+        } else {
+            of << "," << num2;
+            read_from_if2 = true;
+            read_from_if1 = false;
+        }
+    }
 
-    /* write the sorted vector to the output stream */
-    for(int num : vec3)
-        of<<num<<"\n";
+    /* write remaining numbers */
+    while(if1)
+        of<<","<<next_int(if1);
+
+    while(if2)
+        of<<","<<next_int(if2);
 
     if1.close();
     if2.close();
@@ -67,39 +100,65 @@ std::string merge_files(std::vector<std::string>& file_names, int lo, int hi) {
     return merge_files(fpath1, fpath2);
 }
 
-long long next_ll(std::ifstream& in) {
-    char c;
-    std::string str;
-    while((in>>c) && (c!=','))
-        str += c;
-    return std::stoll(str);
-}
 
-std::vector<std::string> split(std::string fpath, int in_memory_buf_size = 524280,
+
+std::vector<std::string> split(std::string fpath,
+                               int in_memory_buf_size = IN_MEMORY_BUFFER_SIZE,
                                std::string out_dir_path="../.temp") {
     std::ifstream in(fpath);
-    std::vector<int> buf(in_memory_buf_size);
+    int *buf = nullptr;
+    try {
+        buf = new int[in_memory_buf_size];
+    } catch(std::bad_alloc &ba) {
+        std::cout<<"failed to allocate memory for buffer";
+        return {};
+    }
+
     std::vector<std::string> fpaths;
     int i=0;
     int fid = 0;
     while(in) {
-        buf[i++] = next_ll(in);
+        buf[i++] = next_int(in);
         if(i == in_memory_buf_size || in.eof()) {
+            /* Sort the buffer before storing on disk */
+            std::sort(buf, buf+i);
+
             std::string fpath = out_dir_path+"/"+std::to_string(fid);
             std::ofstream out(fpath);
             fpaths.push_back(fpath);
-            while(i>0)
-                out<<buf[--i]<<"\n";
+
+            if(i>0) out<<buf[0];
+            for(int j=1; j<i; ++j)
+                out<<","<<buf[j];
+
+            i=0;
             out.close();
             ++fid;
         }
     }
 
+    delete[] buf;
+
     return fpaths;
 }
 
-int main() {
-    std::vector<std::string> fpaths = split("../.temp/unsorted_file.txt");
+int main(int argc, char **argv) {
+    if(argc < 3) {
+        std::cout<<"invalid number of args\n";
+        return 1;
+    }
+    auto start_time = std::chrono::high_resolution_clock::now();
 
+    std::vector<std::string> fpaths = split(argv[1]);
+    std::string sorted_fpath = merge_files(fpaths, 0, fpaths.size()-1);
+    rename(sorted_fpath.c_str(), argv[2]);
+
+    auto end_time = std::chrono::high_resolution_clock::now();
+    auto duration = std::chrono::duration_cast<std::chrono::nanoseconds>
+            (end_time - start_time);
+    long long ns = duration.count();
+    double s = ns/1e9;
+
+    std::cout<<"Duration: "<<s<<" sec\n";
     return 0;
 }
