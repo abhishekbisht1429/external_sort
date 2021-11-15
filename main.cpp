@@ -4,7 +4,8 @@
 #include <algorithm>
 #include <chrono>
 
-static const int IN_MEMORY_BUFFER_SIZE = 134217728;
+static const int DEFAULT_BUFFER_SIZE = 134217728;
+static const std::string TEMP_DIR = "../.temp";
 
 /*
  * NOTE: next_int sets the eof bit after
@@ -102,9 +103,8 @@ std::string merge_files(std::vector<std::string>& file_names, int lo, int hi) {
 
 
 
-std::vector<std::string> split(std::string fpath,
-                               int in_memory_buf_size = IN_MEMORY_BUFFER_SIZE,
-                               std::string out_dir_path="../.temp") {
+std::vector<std::string> split(std::string fpath, size_t in_memory_buf_size,
+                               std::string out_dir_path) {
     std::ifstream in(fpath);
     int *buf = nullptr;
     try {
@@ -143,16 +143,27 @@ std::vector<std::string> split(std::string fpath,
 }
 
 int main(int argc, char **argv) {
+    auto start_time = std::chrono::high_resolution_clock::now();
+    /* ------------------  Code Start ---------------------------- */
     if(argc < 3) {
         std::cout<<"invalid number of args\n";
         return 1;
     }
-    auto start_time = std::chrono::high_resolution_clock::now();
+    std::string input_file = argv[1];
+    std::string output_file = argv[2];
+    size_t buf_size = DEFAULT_BUFFER_SIZE;
+    std::string output_dir = TEMP_DIR;
+    if(argc >= 4)
+        buf_size = (1024 * 1024 * std::stoll(argv[3])) / sizeof (int);
+    if(argc >= 5)
+        output_dir = argv[4];
 
-    std::vector<std::string> fpaths = split(argv[1]);
+
+    std::vector<std::string> fpaths = split(input_file, buf_size, output_dir);
     std::string sorted_fpath = merge_files(fpaths, 0, fpaths.size()-1);
-    rename(sorted_fpath.c_str(), argv[2]);
+    rename(sorted_fpath.c_str(), output_file.c_str());
 
+    /* ------------------- Code End -------------------------------*/
     auto end_time = std::chrono::high_resolution_clock::now();
     auto duration = std::chrono::duration_cast<std::chrono::nanoseconds>
             (end_time - start_time);
